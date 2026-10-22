@@ -807,8 +807,41 @@ def _busy_on(ctx, day0, day1):
     return [b for b in ctx.busy if b.start < day1 and b.end > day0]
 
 
+def _mins(n):
+    n = int(round(n / 60))
+    return f"{n} min" if n < 60 else f"{n // 60} h" + (f" {n % 60} min" if n % 60 else "")
+
+
+def _booked(blocks, a, b):
+    """Seconds of [a, b) covered by timed blocks, overlaps counted once."""
+    total, end = 0, a
+    for x in sorted((x for x in blocks if not x.all_day), key=lambda x: x.start):
+        s, e = max(x.start, end, a), min(x.end, b)
+        if e > s:
+            total += e - s
+        end = max(end, min(x.end, b))
+    return total
+
+
+def _now_line(blocks, now):
+    """The headline: what's on now, or when the next busy block starts."""
+    timed = [x for x in blocks if not x.all_day and x.end > now]
+    cur = [x for x in timed if x.start <= now]
+    if cur:
+        until = max(x.end for x in cur)
+        # back-to-back blocks run on; say when the busy stretch really ends
+        for x in sorted(timed, key=lambda x: x.start):
+            if x.start <= until:
+                until = max(until, x.end)
+        return f"{cur[0].label} until {hm(until)}"
+    if timed:
+        nxt = min(timed, key=lambda x: x.start)
+        return f"Next: {hm(nxt.start)} · in {_mins(nxt.start - now)}"
+    return None
+
+
 def _busy_row(d, x, y, w, b, now, f_time, f_label, day0):
-    """One block: "9:30 – 11:00  Busy", with NOW / all-day markers. Returns the row height."""
+    """One block: "9:30 – 11:00  Busy", with NOW / SOON / all-day markers. Returns the row height."""
     if b.all_day:
         x2 = pill(d, x, y + 1, "ALL DAY", F("cb", 13), pad=4, h=19) + 8
         text(d, (x2, y), ellipsize(d, b.label, f_label, x + w - x2), f_label)
@@ -818,6 +851,13 @@ def _busy_row(d, x, y, w, b, now, f_time, f_label, day0):
     x2 = x
     if b.start <= now < b.end:
         x2 = pill(d, x, y + 1, "NOW", F("cb", 13), pad=4, h=19) + 7
+    elif 0 < b.start - now <= 15 * 60:
+        # starting within 15 minutes: an outlined marker, quieter than NOW
+        f = F("cb", 13)
+        pw = tw(d, "SOON", f) + 8
+        d.rounded_rectangle((x, y + 1, x + pw, y + 20), radius=4, outline=INK, width=2)
+        text(d, (x + 4, y + 3), "SOON", f)
+        x2 = x + pw + 7
     text(d, (x2, y), s, f_time)
     lx = max(x + 132, x2 + tw(d, s, f_time) + 10)
     text(d, (lx, y), ellipsize(d, b.label, f_label, x + w - lx), f_label)
@@ -837,9 +877,23 @@ def panel_calendar(ctx: Ctx, size):
     tom0 = _day_start(today0 + 36 * 3600)
     tom1 = _day_start(tom0 + 36 * 3600)
     y = 6
-    rest = [b for b in _busy_on(ctx, today0, tom0) if b.end > now]
+    today = _busy_on(ctx, today0, tom0)
+    rest = [b for b in today if b.end > now]
     text(d, (12, y), "TODAY", fh)
+    booked = _booked(today, today0, tom0)
+    summary = []
+    if booked:
+        summary.append(f"{_mins(booked)} booked")
+    timed_rest = [b for b in rest if not b.all_day]
+    if timed_rest:
+        summary.append(f"free after {hm(max(b.end for b in timed_rest), False)}")
+    if summary:
+        text(d, (w - 12, y), " · ".join(summary), F("cm", 15), anchor="ra")
     y += 21
+    line = _now_line(today, now)
+    if line:
+        text(d, (12, y), ellipsize(d, line, F("sb", 18), w - 24), F("sb", 18))
+        y += 25
     if rest:
         for b in rest:
             if y + 25 > h - 52:

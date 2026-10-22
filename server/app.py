@@ -472,6 +472,11 @@ class Board:
                     self.beats["live"] = lb
         if "sky" in due:
             self.beats["sky"] = int(now // (max(1, cfg["sky_min"]) * 60))
+        if "calendar" in active() and "calendar" not in due:
+            cb = int(now // 300)   # "next busy in 25 min" stays within 5 minutes of true
+            if self.beats.get("calendar") != cb:
+                due.append("calendar")
+                self.beats["calendar"] = cb
         if not due:
             return
         for name in due:
