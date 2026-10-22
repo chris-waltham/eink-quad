@@ -6,6 +6,11 @@ An e-paper kitchen dashboard for the Seeed reTerminal E1001. Four corners of you
 
 **[See the project page →](https://j-rod-ay.github.io/eink-quad/)**
 
+> This is a fork of [J-Rod-Ay/eink-quad](https://github.com/J-Rod-Ay/eink-quad). It replaces the
+> nginx/reverse-proxy setup with a one-step Mac setup script and HTTPS built into the server, and
+> the board now pins the server's certificate, shows on screen what's wrong when it can't connect,
+> and reads the charger chip to know when it's on USB. The steps below are for this fork.
+
 🖥️ **The screen: [Seeed reTerminal E1001 on Amazon](https://link.amazon/B0gH6ekeP)** — 7.5″ 800×480 mono e-paper, ESP32-S3, battery. *(affiliate link)*
 
 ## What's on it
@@ -52,10 +57,13 @@ All keyless: Open-Meteo (forecast + nowcast), api.weather.gov (alerts, US only),
 ### Server (macOS)
 
 ```sh
-git clone https://github.com/J-Rod-Ay/eink-quad.git ~/eink-quad   # not in Desktop/Documents/Downloads
+git clone -b quad-improvements https://github.com/chris-waltham/eink-quad.git ~/eink-quad
 cd ~/eink-quad/server
 ./setup-mac.sh
 ```
+
+Clone it to your home folder as above, not into Desktop, Documents or Downloads: macOS stops
+background services from reading those, and the script refuses to run there.
 
 The script makes a Python environment, two random keys, and a certificate for this Mac's
 Bonjour name (`<name>.local`). It writes `server/quad.env` and the board's
@@ -76,26 +84,55 @@ why it failed, if it did. Logs: `server/logs/server.log`.
 
 **Preview without hardware:** `.venv/bin/python cases.py` renders every screen with live data to `case_*.png`.
 
-**Your teams:** the built-in keys are the Tampa ones (`bucs`, `lightning`, `rays`, `gators_fb`, `gators_bb`). Add your own in `config.json` with ESPN's sport, league and team id or abbreviation:
+### Your location, teams and tickers
 
-```json
-{
-  "city": "Chicago",
-  "lat": 41.8781, "lon": -87.6298,
+Set them on the settings page, or from Terminal on the server Mac. Changes are saved to
+`server/config.json` and show on the board at its next check, with no restart. Don't edit
+`config.json` while the server is running: the next save from the settings page overwrites it.
+
+```sh
+cd ~/eink-quad/server
+K=$(sed -n 's/^QUAD_ADMIN=//p' quad.env)
+curl -sS -X POST "http://127.0.0.1:8740/api/config?k=$K" -d '{
+  "city": "Chicago", "lat": 41.8781, "lon": -87.6298,
   "custom_teams": {
-    "bears": ["Bears", "football", "nfl", "chi"],
-    "cubs":  ["Cubs", "baseball", "mlb", "chc"]
+    "bears": ["Bears", "football", "nfl", "3"],
+    "cubs":  ["Cubs", "baseball", "mlb", "16"]
   },
-  "teams": ["bears", "cubs"]
-}
+  "teams": ["bears", "cubs"],
+  "tickers": ["^GSPC", "^DJI", "AAPL"]
+}' | head -c 40; echo
 ```
+
+It prints `{"ok": true` when it worked. A team is `[label, sport, league, ESPN team id]`. Find
+the id at `https://site.api.espn.com/apis/site/v2/sports/<sport>/<league>/teams/<abbreviation>`
+(for example `.../football/nfl/teams/chi`); soccer works too (`"soccer", "usa.1"` for MLS).
+Teams with no recent or upcoming game, such as a baseball team in winter, are left off until
+they have one. Tickers are Yahoo Finance symbols (`^GSPC` S&P 500, `^DJI` Dow, `^IXIC` Nasdaq).
+If you don't use the `claude` CLI on the server, also send `{"llm_brief": false}`.
+
+### Running the server
+
+`setup-mac.sh` installs it as a launchd service that starts at boot and restarts if it stops.
+
+| | |
+|---|---|
+| status | `sudo launchctl print system/com.quadboard.server \| grep state` |
+| restart (after updating the code) | `sudo launchctl kickstart -k system/com.quadboard.server` |
+| stop / start | `sudo launchctl bootout system /Library/LaunchDaemons/com.quadboard.server.plist` / `sudo launchctl bootstrap system /Library/LaunchDaemons/com.quadboard.server.plist` |
+| log | `tail -f ~/eink-quad/server/logs/server.log` |
+| settings page from another computer | `ssh -L 8740:127.0.0.1:8740 you@<name>.local`, then `http://127.0.0.1:8740/?k=<QUAD_ADMIN>` |
+
+A stopped service stays stopped until you start it again or the Mac reboots.
 
 ### Firmware
 
-Run `server/setup-mac.sh` first: it writes `firmware/src/secrets.h`. Then, with the board on USB:
+Run `server/setup-mac.sh` first: it writes `firmware/src/secrets.h`. Flash from the same Mac (or
+copy `secrets.h` over SSH to the one you flash from). With the board on USB-C:
 
 ```sh
-cd firmware
+brew install platformio
+cd ~/eink-quad/firmware
 pio run -t upload            # add --upload-port /dev/cu.usbmodem* if it picks the wrong one
 pio device monitor           # boot log
 ```
@@ -107,13 +144,22 @@ The board finds the server by its Bonjour name (falling back to its last address
 `SERVER_IP`), and only talks to a server whose certificate matches the fingerprint in
 `secrets.h`. If you re-run setup and it makes a new certificate, flash again.
 
+### Power: USB and battery
+
+On USB the board stays awake and updates within seconds; on battery it deep-sleeps and checks in
+every 10 minutes (any button wakes it). Boards from v1.2 (November 2025) have a Silergy SY6974B
+charger the firmware can read, so the server knows for certain when USB power is present; the
+header then shows a lightning bolt with "charging" or "charged". Older boards only report the
+battery voltage, and the server guesses from it. The settings page shows which it is ("charger
+chip" or "voltage guess"). The orange light on the board is the charger's own charge indicator.
+
 ### When something's wrong
 
 The board says so itself:
 
 | Sign | Meaning |
 |---|---|
-| LED blinks 2× | no Wi-Fi |
+| status LED blinks 2× (if your unit's LED is visible) | no Wi-Fi |
 | LED blinks 3× | server not found or not answering |
 | LED blinks 4× | wrong certificate, or the key was rejected |
 | a black label in the bottom-right corner | the problem has lasted a minute (plugged in) or one wake (battery) |
