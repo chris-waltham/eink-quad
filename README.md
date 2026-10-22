@@ -19,7 +19,7 @@ An e-paper kitchen dashboard for the Seeed reTerminal E1001. Four corners of you
 
 A strip under the header carries one line: your own pinned message, a severe weather alert, or a sentence from Claude that ties the day together (optional).
 
-The three buttons on top work as **home**, **previous page** and **next page**. Each corner has its own detail page:
+Seen from the front, the three buttons on top are **next page** (left), **previous page** (middle) and **home / refresh** (right). The firmware calls them KEY2, KEY1 and KEY0. Each corner has its own detail page:
 
 | | |
 |---|---|
@@ -101,7 +101,7 @@ pio device monitor           # boot log
 ```
 
 On first boot the board opens a Wi-Fi setup portal named `QuadBoard-XXXX`. Join it from your phone
-and pick your network (2.4 GHz only). To get back to it later, hold the right button and tap the left one.
+and pick your network (2.4 GHz only). To get back to it later, hold the left button and tap the right one.
 
 The board finds the server by its Bonjour name (falling back to its last address, then
 `SERVER_IP`), and only talks to a server whose certificate matches the fingerprint in

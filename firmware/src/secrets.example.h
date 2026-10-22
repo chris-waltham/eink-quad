@@ -12,7 +12,7 @@
 #define DEVICE_TOKEN "change-me"
 
 // Optional: seeded into NVS on first boot only if no network is stored.
-// Leave empty and use the setup portal instead (hold right button, tap left).
+// Leave empty and use the setup portal instead (hold the left button, tap the right).
 #define DEV_WIFI_SSID ""
 #define DEV_WIFI_PASS ""
 

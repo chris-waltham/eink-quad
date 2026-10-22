@@ -422,7 +422,7 @@ static void errorScreen(uint8_t e) {
       title = "Can't join Wi-Fi";
       snprintf(l1, sizeof l1, "Network \"%s\" wasn't found, or refused the password.", ssid.c_str());
       snprintf(l2, sizeof l2, "This board only uses 2.4 GHz Wi-Fi.");
-      snprintf(l3, sizeof l3, "To pick another network: hold the right button, tap the left.");
+      snprintf(l3, sizeof l3, "To pick another network: hold the left button, tap the right.");
       break;
     case NET_NO_NAME:
       title = "Can't find the server";
@@ -575,7 +575,7 @@ void setup() {
   display::begin();
   reel = (uint8_t *)ps_malloc(MAX_REEL);
 
-  // hold right + tap left => forget wifi
+  // hold KEY2 (the left button, seen from the front) + tap another => forget wifi
   if (digitalRead(KEY2_PIN) == LOW && keyHeld(KEY2_PIN, 600)) {
     Serial.println("[key2] held -- setup");
     wifisetup::forget();

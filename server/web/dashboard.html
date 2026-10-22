@@ -292,7 +292,7 @@ function render() {
   document.getElementById('hdr').textContent = `v${S.version} · ${S.cfg.label}`;
   document.getElementById('briefText').textContent = S.sources.brief.text || (S.cfg.llm_brief ? 'No brief yet' : 'Brief is off');
   if (!document.activeElement || document.activeElement.id !== 'stickyText') document.getElementById('stickyText').value = S.sticky || '';
-  document.getElementById('notesNote').textContent = S.notes_available ? 'Connected to the note box inbox. Left button hearts a note, any other button dismisses it.' : 'Note box inbox not found on this server.';
+  document.getElementById('notesNote').textContent = S.notes_available ? 'Connected to the note box inbox. The right button hearts a note, any other button dismisses it.' : 'Note box inbox not found on this server.';
   const rows = [];
   const src = S.sources;
   const st = (o) => o ? (o.error ? `<span style="color:var(--bad)">${o.error}</span> (last ok ${ago(o.age_s)})` : `ok · ${ago(o.age_s)}`) : '—';
