@@ -355,7 +355,7 @@ class Board:
                      recent=sn.get("recent") or [], day_count=sn.get("day_count", 0), nearby=sn.get("nearby") or [],
                      event=sn.get("event"), upcoming=sn.get("upcoming") or [], brief=sn.get("brief", ""),
                      sticky=sticky, indoor_f=t_f, indoor_rh=dv.get("rh"), battery=batt,
-                     on_usb=dv.get("mode") == "live", cycle=self.cycle, updated=self.updated or now,
+                     on_usb=dv.get("mode") == "live", rssi=dv.get("rssi"), cycle=self.cycle, updated=self.updated or now,
                      page=page or self.page)
 
     # -- commit (call with cond held)

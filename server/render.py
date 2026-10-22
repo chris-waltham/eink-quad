@@ -339,6 +339,7 @@ class Ctx:
     indoor_f: float | None = None
     indoor_rh: float | None = None
     battery: int | None = None
+    rssi: int | None = None       # the board's Wi-Fi signal, dBm, from its last poll
     on_usb: bool = True
     cycle: int = 0                # increments every scheduled update (rotations)
     updated: float = 0.0
@@ -798,13 +799,28 @@ PANELS = {"weather": panel_weather, "news": panel_news, "sports": panel_sports, 
 
 # ================================================================== chrome
 
+def wifi_level(rssi):
+    """0-3 arcs, the usual phone-style thresholds."""
+    return 3 if rssi >= -60 else 2 if rssi >= -70 else 1 if rssi >= -80 else 0
+
+
+def wifi_glyph(d, x, base, rssi):
+    """A Wi-Fi fan, 26 px wide, its point at (x + 13, base). Arcs above the signal level are
+    drawn hairline, so the shape stays recognisable even at one bar."""
+    cx, lvl = x + 13, wifi_level(rssi)
+    d.ellipse((cx - 2, base - 2, cx + 2, base + 2), fill=PAPER)
+    for i, r in enumerate((6, 11, 16), start=1):
+        strong = lvl >= i
+        d.arc((cx - r, base - r, cx + r, base + r), 225, 315, fill=PAPER, width=3 if strong else 1)
+
+
 def header(ctx: Ctx):
     c, d = canvas((W, HEAD_H))
     d.rectangle((0, 0, W, HEAD_H), fill=INK)
     t = time.localtime(ctx.now)
     date = time.strftime("%A, %B ", t) + str(t.tm_mday)
     text(d, (14, HEAD_H / 2), date, F("sb", 22), fill=PAPER, anchor="lm")
-    # right side, laid out right-to-left: updated time, battery, indoor
+    # right side, laid out right-to-left: updated time, battery, Wi-Fi, indoor
     f = F("m", 17)
     sep = "   ·   "
     x = W - 14
@@ -825,6 +841,11 @@ def header(ctx: Ctx):
         d.rectangle((x + bw + 1, y0 + 4, x + bw + 3, y0 + bh - 4), fill=PAPER)
         fillw = max(1, round((bw - 6) * min(100, ctx.battery) / 100))
         d.rectangle((x + 3, y0 + 3, x + 3 + fillw, y0 + bh - 3), fill=PAPER)
+    if ctx.rssi is not None:
+        x -= tw(d, sep, f)
+        text(d, (x, HEAD_H / 2), sep, f, fill=PAPER, anchor="lm")
+        x -= 26
+        wifi_glyph(d, x, HEAD_H / 2 + 8, ctx.rssi)
     if ctx.indoor_f is not None:
         x -= tw(d, sep, f)
         text(d, (x, HEAD_H / 2), sep, f, fill=PAPER, anchor="lm")
