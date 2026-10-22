@@ -340,6 +340,7 @@ class Ctx:
     indoor_rh: float | None = None
     battery: int | None = None
     rssi: int | None = None       # the board's Wi-Fi signal, dBm, from its last poll
+    charging: str | None = None   # "charging" | "charged" | "on USB" | None (on battery)
     on_usb: bool = True
     cycle: int = 0                # increments every scheduled update (rotations)
     updated: float = 0.0
@@ -831,7 +832,10 @@ def header(ctx: Ctx):
     if ctx.battery is not None:
         x -= tw(d, sep, f)
         text(d, (x, HEAD_H / 2), sep, f, fill=PAPER, anchor="lm")
-        pct = f"{ctx.battery}%" + ("  plug me in" if ctx.battery <= 20 else "")
+        if ctx.charging:
+            pct = f"{ctx.battery}%  {ctx.charging}"
+        else:
+            pct = f"{ctx.battery}%" + ("  plug me in" if ctx.battery <= 20 else "")
         x -= tw(d, pct, f)
         text(d, (x, HEAD_H / 2), pct, f, fill=PAPER, anchor="lm")
         # battery glyph: outline, nub, fill proportional to charge
@@ -842,6 +846,12 @@ def header(ctx: Ctx):
         d.rectangle((x + bw + 1, y0 + 4, x + bw + 3, y0 + bh - 4), fill=PAPER)
         fillw = max(1, round((bw - 6) * min(100, ctx.battery) / 100))
         d.rectangle((x + 3, y0 + 3, x + 3 + fillw, y0 + bh - 3), fill=PAPER)
+        if ctx.charging:
+            # a lightning bolt to the left of the battery
+            x -= 13
+            by = HEAD_H / 2
+            d.polygon([(x + 6, by - 9), (x + 1, by + 1), (x + 5, by + 1), (x + 3, by + 9),
+                       (x + 10, by - 2), (x + 6, by - 2), (x + 8, by - 9)], fill=PAPER)
     if ctx.rssi is not None:
         x -= tw(d, sep, f)
         text(d, (x, HEAD_H / 2), sep, f, fill=PAPER, anchor="lm")

@@ -87,6 +87,16 @@ KEY_PATH = os.environ.get("QUAD_KEY", os.path.join(HERE, "tls", "quad.key"))
 CHARGE_STATES = {0: "not charging", 1: "pre-charging", 2: "charging", 3: "charged"}
 
 
+def charging_label(dv):
+    """What the header says next to the battery: "charging", "charged", "on USB" or nothing."""
+    if dv.get("usb"):
+        c = dv.get("charge") or ""
+        return "charging" if "charging" in c and c != "not charging" else "charged" if c == "charged" else "on USB"
+    if dv.get("usb") is None and dv.get("power") == "voltage guess" and dv.get("mode") == "live":
+        return "charging" if (dv.get("vbat") or 0) < 4.15 else "on USB"
+    return None
+
+
 def check_token(name, value):
     """Refuse to start on a missing, placeholder or weak token rather than run unprotected."""
     if not value:
@@ -355,7 +365,7 @@ class Board:
                      recent=sn.get("recent") or [], day_count=sn.get("day_count", 0), nearby=sn.get("nearby") or [],
                      event=sn.get("event"), upcoming=sn.get("upcoming") or [], brief=sn.get("brief", ""),
                      sticky=sticky, indoor_f=t_f, indoor_rh=dv.get("rh"), battery=batt,
-                     on_usb=dv.get("mode") == "live", rssi=dv.get("rssi"), cycle=self.cycle, updated=self.updated or now,
+                     on_usb=dv.get("mode") == "live", rssi=dv.get("rssi"), charging=charging_label(dv), cycle=self.cycle, updated=self.updated or now,
                      page=page or self.page)
 
     # -- commit (call with cond held)
@@ -771,9 +781,15 @@ class H(BaseHTTPRequestHandler):
         chg = int(q["chg"]) if q.get("chg", "").isdigit() else None
         mode, power = board.power_mode(vbat, usb)
         dv = board.device
+        was = charging_label(dv)
         dv.update(last_seen=time.time(), vbat=vbat, mode=mode, version=v, usb=usb == "1" if usb else None,
                   charge=CHARGE_STATES.get(chg) if chg is not None else None, power=power,
                   rssi=int(q["rssi"]) if q.get("rssi") else dv.get("rssi"), polls=dv["polls"] + 1)
+        now_label = charging_label(dv)
+        if now_label != was:
+            # plugged in or unplugged: redraw so the header shows it now, not at the next beat
+            with board.cond:
+                board.redraw(f"power: {now_label or 'battery'}")
         if q.get("t"):
             dv["t"] = float(q["t"])
             dv["rh"] = float(q["rh"]) if q.get("rh") else None
