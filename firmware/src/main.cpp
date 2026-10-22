@@ -58,8 +58,10 @@ static uint32_t partialsSinceFull = 0;
 static uint32_t lastPartialMs = 0;
 static uint32_t cleanAfterS = 90;
 static bool unread = false;
-static bool liveMode = true;
-static uint32_t nextSleepS = 300;
+// Kept across deep sleep: a wake that can't reach the server must still know it's on
+// battery, count as a failed wake and go back to sleep, not stay awake retrying.
+RTC_DATA_ATTR static bool liveMode = true;
+RTC_DATA_ATTR static uint32_t nextSleepS = 300;
 
 static uint8_t *reel = nullptr;
 
