@@ -6,7 +6,14 @@ moves on, it gets a reel of changed rectangles and plays them as partial
 refreshes. Every layout decision, cadence and rotation lives here, and every
 knob is editable from the web dashboard (/?k=<admin token>).
 
-Run: python app.py   (env: see CONFIG below)
+Two listeners:
+  device  -- HTTPS on the LAN (QUAD_DEVICE_BIND:QUAD_DEVICE_PORT, default 0.0.0.0:8743) with
+             the certificate setup-mac.sh makes. Serves only /api/device/poll and /healthz,
+             and wants "Authorization: Bearer <QUAD_TOKEN>". No reverse proxy needed.
+  admin   -- plain HTTP on loopback (QUAD_BIND:QUAD_PORT, default 127.0.0.1:8740): the
+             settings dashboard. Reach it from another machine with an SSH tunnel.
+
+Run: python app.py   (settings come from quad.env next to this file; see setup-mac.sh)
 """
 from __future__ import annotations
 
@@ -24,6 +31,35 @@ import traceback
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import hmac  # noqa: E402
+import ssl  # noqa: E402
+
+
+def load_env_file(path):
+    """KEY=VALUE lines into os.environ (values already in the environment win).
+    Comments may follow a value after whitespace; quotes around a value are removed. This is
+    what lets quad.env work the same under a shell, launchd and anything else."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    except FileNotFoundError:
+        return
+    for raw in lines:
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, val = line.split("=", 1)
+        key, val = key.strip(), val.strip()
+        if key.startswith("export "):
+            key = key[7:].strip()
+        if val[:1] in ("'", '"') and val.count(val[0]) >= 2:
+            val = val[1:val.index(val[0], 1)]
+        else:
+            val = re.split(r"\s+#", val, maxsplit=1)[0].strip()
+        os.environ.setdefault(key, val)
+
+
+load_env_file(os.environ.get("QUAD_ENV", os.path.join(os.path.dirname(os.path.abspath(__file__)), "quad.env")))
 os.environ.setdefault("TZ", "America/New_York")
 if hasattr(time, "tzset"):
     time.tzset()
@@ -40,8 +76,26 @@ from sky import Sky  # noqa: E402
 HERE = os.path.dirname(os.path.abspath(__file__))
 PORT = int(os.environ.get("QUAD_PORT", "8740"))
 BIND = os.environ.get("QUAD_BIND", "127.0.0.1")
-DEVICE_TOKEN = os.environ.get("QUAD_TOKEN", "dev")
-ADMIN_TOKEN = os.environ.get("QUAD_ADMIN", "admin")
+DEVICE_TOKEN = os.environ.get("QUAD_TOKEN", "")
+ADMIN_TOKEN = os.environ.get("QUAD_ADMIN", "")
+DEVICE_PORT = int(os.environ.get("QUAD_DEVICE_PORT", "8743"))
+DEVICE_BIND = os.environ.get("QUAD_DEVICE_BIND", "0.0.0.0")
+CERT_PATH = os.environ.get("QUAD_CERT", os.path.join(HERE, "tls", "quad.crt"))
+KEY_PATH = os.environ.get("QUAD_KEY", os.path.join(HERE, "tls", "quad.key"))
+
+
+def check_token(name, value):
+    """Refuse to start on a missing, placeholder or weak token rather than run unprotected."""
+    if not value:
+        sys.exit(f"{name} is not set. Run ./setup-mac.sh, or put {name}=... in quad.env.")
+    if value in ("dev", "admin", "change-me", "change-me-too") or len(value) < 24:
+        sys.exit(f"{name} is a placeholder or shorter than 24 characters. Run ./setup-mac.sh to make one.")
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", value):
+        sys.exit(f"{name} may only use letters, digits, '-' and '_' (it travels in an HTTP header).")
+
+
+def token_ok(given, expected):
+    return bool(given) and hmac.compare_digest(given.encode(), expected.encode())
 CONFIG_PATH = os.environ.get("QUAD_CONFIG", os.path.join(HERE, "config.json"))
 STATE_PATH = os.environ.get("QUAD_STATE", os.path.join(HERE, "state.json"))
 NOTES_DB = os.environ.get("QUAD_NOTES_DB", "")           # the note box's sqlite, optional
@@ -216,12 +270,21 @@ class Board:
         self.snap = {}              # panel -> data
         self.device = {"last_seen": 0, "vbat": None, "t": None, "rh": None, "rssi": None, "version": 0,
                        "mode": "live", "boots": 0, "polls": 0}
+        # the last connection to the device port, whatever happened: shown on the dashboard
+        self.attempt = {"at": 0, "ip": None, "result": None}
         self.log = []               # recent events for the dashboard
         self.final = Image.new("1", (R.W, R.H), 1)
         self.final_gray = None      # grey rendering of final, when the last full refresh had one
         self.prev_version = self.version
         self.reel = b""
         self.render_ms = 0
+
+    def device_attempt(self, ip, result):
+        """Remember the last device-port connection, and log each change of outcome once."""
+        prev = self.attempt.get("result")
+        self.attempt = {"at": time.time(), "ip": ip, "result": result}
+        if result != prev:
+            self.note_event(f"device {ip}: {result}")
 
     def note_event(self, s):
         self.log.insert(0, (time.time(), s))
@@ -513,8 +576,8 @@ class H(BaseHTTPRequestHandler):
         return p
 
     def admin(self):
-        tok = self.q().get("k") or (self.headers.get("Authorization") or "").replace("Bearer ", "")
-        return tok == ADMIN_TOKEN
+        tok = self.q().get("k") or bearer(self.headers)
+        return token_ok(tok, ADMIN_TOKEN)
 
     def do_HEAD(self):
         self.do_GET()
@@ -522,8 +585,6 @@ class H(BaseHTTPRequestHandler):
     def do_GET(self):
         p = self.route()
         try:
-            if p == "/api/device/poll":
-                return self.device_poll()
             if p == "/healthz":
                 return self.send(200, "ok", "text/plain")
             if not self.admin():
@@ -587,6 +648,8 @@ class H(BaseHTTPRequestHandler):
                            "battery": lipo_percent(dv["vbat"]) if dv.get("vbat") else None,
                            "in_sync": dv.get("version") == board.version},
                 "quiet_now": quiet_now(),
+                "attempt": {**board.attempt,
+                            "age_s": round(now - board.attempt["at"]) if board.attempt["at"] else None},
             }
         st["sources"] = {
             "weather": S._weather.status(), "alerts": S._alerts.status(), "news": S.news_status(),
@@ -675,8 +738,13 @@ class H(BaseHTTPRequestHandler):
     # -- device
     def device_poll(self):
         q = self.q()
-        if q.get("k") != DEVICE_TOKEN:
-            return self.send(404, {"error": "not found"})
+        ip = self.client_address[0]
+        tok = bearer(self.headers)
+        if not token_ok(tok, DEVICE_TOKEN):
+            why = "no token" if not tok else "wrong token"
+            board.device_attempt(ip, f"rejected: {why}")
+            return self.send(401, {"error": f"unauthorized ({why})"}, headers={"WWW-Authenticate": "Bearer"})
+        board.device_attempt(ip, "ok")
         v = int(q.get("v", "0") or 0)
         wait = min(int(q.get("wait", "0") or 0), 30)
         vbat = float(q["vbat"]) if q.get("vbat") else None
@@ -727,9 +795,68 @@ class H(BaseHTTPRequestHandler):
         return self.send(200, body, "application/octet-stream", headers)
 
 
+class DeviceH(H):
+    """The LAN-facing listener: the board's poll and a health check, nothing else."""
+
+    def do_GET(self):
+        p = self.route()
+        try:
+            if p == "/api/device/poll":
+                return self.device_poll()
+            if p == "/healthz":
+                return self.send(200, "ok", "text/plain")
+            board.device_attempt(self.client_address[0], f"unknown path {p[:60]}")
+            return self.send(404, {"error": "not found", "path": p})
+        except (BrokenPipeError, ConnectionResetError, ssl.SSLError):
+            pass
+        except Exception as e:
+            traceback.print_exc()
+            return self.send(500, {"error": str(e)})
+
+    def do_POST(self):
+        return self.send(405, {"error": "method not allowed"})
+
+
+def bearer(headers):
+    v = headers.get("Authorization") or ""
+    return v[7:].strip() if v[:7].lower() == "bearer " else ""
+
+
 class Server(ThreadingHTTPServer):
     daemon_threads = True
     request_queue_size = 64
+
+
+class TLSServer(Server):
+    """HTTPS without a reverse proxy. The handshake runs in the request thread, so a slow or
+    broken client can't stall the listener."""
+
+    def __init__(self, addr, handler, ctx):
+        self.ctx = ctx
+        super().__init__(addr, handler)
+
+    def get_request(self):
+        sock, addr = self.socket.accept()
+        return self.ctx.wrap_socket(sock, server_side=True, do_handshake_on_connect=False), addr
+
+    def finish_request(self, request, client_address):
+        try:
+            request.settimeout(20)
+            request.do_handshake()
+            request.settimeout(None)
+        except (ssl.SSLError, OSError) as e:
+            board.device_attempt(client_address[0], f"TLS handshake failed: {type(e).__name__}")
+            return
+        super().finish_request(request, client_address)
+
+
+def tls_context():
+    if not (os.path.exists(CERT_PATH) and os.path.exists(KEY_PATH)):
+        sys.exit(f"No certificate at {CERT_PATH}. Run ./setup-mac.sh to make one.")
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+    ctx.load_cert_chain(CERT_PATH, KEY_PATH)
+    return ctx
 
 
 def warm():
@@ -748,7 +875,15 @@ def warm():
 
 
 if __name__ == "__main__":
+    check_token("QUAD_TOKEN", DEVICE_TOKEN)
+    check_token("QUAD_ADMIN", ADMIN_TOKEN)
+    if hmac.compare_digest(DEVICE_TOKEN, ADMIN_TOKEN):
+        sys.exit("QUAD_TOKEN and QUAD_ADMIN must differ: the board's key must not open the settings.")
+    device = TLSServer((DEVICE_BIND, DEVICE_PORT), DeviceH, tls_context())
+    admin = Server((BIND, PORT), H)
     start_sky()
-    print(f"quad board on {BIND}:{PORT} tz={os.environ['TZ']} notes={'on' if nb else 'off'}", flush=True)
+    print(f"quad board: device https://{DEVICE_BIND}:{DEVICE_PORT}  settings http://{BIND}:{PORT}  "
+          f"tz={os.environ['TZ']} notes={'on' if nb else 'off'}", flush=True)
     threading.Thread(target=warm, daemon=True).start()
-    Server((BIND, PORT), H).serve_forever()
+    threading.Thread(target=device.serve_forever, daemon=True).start()
+    admin.serve_forever()

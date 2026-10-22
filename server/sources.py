@@ -749,7 +749,9 @@ def brief(cfg, heads, wx, games, force=False) -> str:
             f"{w}\nSports: {g}\nHeadlines:\n" + "\n".join(lines))
         env = dict(os.environ)
         out = subprocess.run(
-            ["claude", "-p", prompt, "--strict-mcp-config", "--model", cfg.get("llm_model", "claude-haiku-4-5-20251001")],
+            # --tools "": no tools at all. The prompt carries headlines from the internet, so the
+            # model must only be able to answer with text, never run or read anything.
+            ["claude", "-p", prompt, "--tools", "", "--strict-mcp-config", "--model", cfg.get("llm_model", "claude-haiku-4-5-20251001")],
             capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL, env=env,
             cwd=os.path.join(HERE, "cache"))
         txt = (out.stdout or "").strip().splitlines()

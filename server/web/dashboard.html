@@ -265,11 +265,17 @@ function loadThumbs() {
   }
 }
 
+// Text that came in from the network (paths, addresses) must not be read as HTML.
+const esc = (x) => String(x ?? '').replace(/[&<>"']/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+
 function render() {
   const d = S.device;
   const chips = [];
   const age = d.age_s;
   chips.push(age != null && age < 90 ? ['ok', 'Device online'] : ['bad', 'Device offline · last ' + ago(age)]);
+  const at = S.attempt || {};
+  if (at.result && at.result !== 'ok' && at.age_s != null && at.age_s < 900)
+    chips.push(['bad', 'Board connection ' + esc(at.result)]);
   if (d.in_sync === false && age != null && age < 90) chips.push(['warn', 'Updating…']);
   if (d.t != null) chips.push(['', `Inside ${(d.t*9/5+32).toFixed(0)}°F ${d.rh != null ? d.rh.toFixed(0)+'%' : ''}`]);
   if (d.battery != null) chips.push([d.battery < 20 ? 'bad' : '', `Battery ${d.battery}% (${d.vbat?.toFixed(2)}V)`]);
@@ -294,9 +300,10 @@ function render() {
   rows.push(['Plane feed', st(src.sky)], ['Claude brief', st(src.brief)]);
   if (src.events && src.events.upcoming && src.events.upcoming.length)
     rows.push(['Next sky event', src.events.upcoming.map(e => `${e.title} in ${Math.round(e.in_s/3600)}h (${e.confidence})`).join('<br>')]);
+  rows.push(['Last board connection', at.result ? `${esc(at.result)} · from ${esc(at.ip)} · ${ago(at.age_s)}` : 'none yet']);
   rows.push(['Render', `${S.render_ms} ms · cycle ${S.cycle}`], ['Device', `${d.polls} polls · ${d.boots} boots · on v${d.version}`]);
   document.getElementById('health').innerHTML = rows.map(([a, b]) => `<tr><td>${a}</td><td>${b}</td></tr>`).join('');
-  document.getElementById('log').innerHTML = S.log.map(([t, s]) => `${hm(t)}  ${s}`).join('<br>');
+  document.getElementById('log').innerHTML = S.log.map(([t, s]) => `${hm(t)}  ${esc(s)}`).join('<br>');
 }
 
 async function poll() {
