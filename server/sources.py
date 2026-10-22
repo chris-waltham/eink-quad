@@ -355,6 +355,27 @@ def quotes(cfg, force=False) -> list[Quote]:
     return [got[s] for s in syms if s in got]
 
 
+# ============================================================ calendar (busy times)
+
+import calendar_ics  # noqa: E402
+
+_calendar = Cached(300)
+
+
+def busy_times(cfg, force=False):
+    urls = calendar_ics.urls_from_env()
+    if not urls:
+        return []
+
+    def fetch_calendar():
+        return calendar_ics.fetch(urls, titles=bool(cfg.get("calendar_titles")))
+    return _calendar.get(fetch_calendar, force) or []
+
+
+def calendar_status():
+    return {**_calendar.status(), "configured": bool(calendar_ics.urls_from_env())}
+
+
 def quotes_status():
     return _quotes.status()
 

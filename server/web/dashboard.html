@@ -259,7 +259,7 @@ document.getElementById('form').addEventListener('input', () => { dirty = true; 
 
 function loadThumbs() {
   const t = document.getElementById('thumbs'); t.innerHTML = '';
-  for (const p of ['weather','news','sports','sky']) {
+  for (const p of (S.cfg.slots || ['weather','news','sports','sky'])) {
     const img = new Image(); img.src = api(`/api/preview.png?page=${p}&t=${Date.now()}`); img.alt = p; img.title = 'Show ' + p + ' on the board';
     img.onclick = () => act({action:'page', page:p}); t.appendChild(img);
   }
@@ -300,6 +300,7 @@ function render() {
   for (const [k, v] of Object.entries(src.news)) rows.push(['WSJ ' + (S.feeds[k] || k), st(v)]);
   for (const [k, v] of Object.entries(src.sports)) rows.push([S.teams[k] || k, st(v)]);
   rows.push(['Plane feed', st(src.sky)], ['Claude brief', st(src.brief)]);
+  if (src.calendar) rows.push(['Calendar', src.calendar.configured ? st(src.calendar) : 'not set up (QUAD_CALENDAR_ICS in quad.env)']);
   if (src.events && src.events.upcoming && src.events.upcoming.length)
     rows.push(['Next sky event', src.events.upcoming.map(e => `${e.title} in ${Math.round(e.in_s/3600)}h (${e.confidence})`).join('<br>')]);
   rows.push(['Last board connection', at.result ? `${esc(at.result)} · from ${esc(at.ip)} · ${ago(at.age_s)}` : 'none yet']);

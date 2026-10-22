@@ -120,7 +120,8 @@ DEFAULTS = {
     "city": "Tampa",             # named in the Claude brief's prompt
     "lat": 27.9506, "lon": -82.4572,
     "units": "F",
-    "slots": ["weather", "news", "sports", "sky"],
+    "slots": ["weather", "news", "sports", "sky"],   # any four of R.PANELS
+    "calendar_titles": False,    # calendar corner: show event titles, if the feed has them (default: busy status only)
     "interval_min": 10,          # the main cadence: every panel refreshes on this beat
     "sky_min": 10,               # plane panel can run faster (partial refresh, no flash)
     "live_fast": True,           # while a team is playing, sports refreshes every live_min
@@ -253,7 +254,13 @@ def row_note(r):
 
 # ---------------------------------------------------------------- the board
 
-PAGES = ["quad", "weather", "news", "sports", "sky"]
+def active():
+    """The panels on the quad, in order. Only these are fetched, drawn and paged through."""
+    return [p for p in cfg.get("slots", []) if p in R.PANELS]
+
+
+def pages():
+    return ["quad"] + active()
 
 
 class Board:
@@ -335,6 +342,8 @@ class Board:
                     urls += [g.opp_logo for g in (r.live, r.last, r.next) if g]
                 logos.prefetch(urls)
             self.snap["teams"], self.snap["live"] = teams, live
+        elif name == "calendar":
+            self.snap["busy"] = S.busy_times(cfg, force)
         elif name == "sky":
             featured, recent, _ = sky.snapshot()
             self.snap["featured"], self.snap["recent"] = featured, recent
@@ -361,7 +370,7 @@ class Board:
         if t_f is not None and cfg.get("units") != "C":
             t_f = t_f * 9 / 5 + 32
         return R.Ctx(now=now, cfg=cfg, weather=sn.get("weather"), heads=sn.get("heads") or [],
-                     quotes=sn.get("quotes") or [], teams=sn.get("teams") or [], featured=sn.get("featured"),
+                     quotes=sn.get("quotes") or [], teams=sn.get("teams") or [], busy=sn.get("busy") or [], calendar_set=bool(S.calendar_ics.urls_from_env()), featured=sn.get("featured"),
                      recent=sn.get("recent") or [], day_count=sn.get("day_count", 0), nearby=sn.get("nearby") or [],
                      event=sn.get("event"), upcoming=sn.get("upcoming") or [], brief=sn.get("brief", ""),
                      sticky=sticky, indoor_f=t_f, indoor_rh=dv.get("rh"), battery=batt,
@@ -444,7 +453,7 @@ class Board:
         beat = int(now // iv)
         due = []
         if self.beats.get("main") != beat:
-            due = ["weather", "news", "sports", "sky", "brief"]
+            due = active() + ["brief"]
             self.beats["main"] = beat
             with self.cond:
                 self.cycle += 1
@@ -453,10 +462,10 @@ class Board:
             ev = events.next_event() if events else None
             if ev is not None:   # event countdown ticks every minute
                 sb = int(now // 60)
-            if self.beats.get("sky") != sb:
+            if self.beats.get("sky") != sb and "sky" in active():
                 due.append("sky")
             live = self.snap.get("live")
-            if live and cfg.get("live_fast"):
+            if live and cfg.get("live_fast") and "sports" in active():
                 lb = int(now // (max(1, cfg["live_min"]) * 60))
                 if self.beats.get("live") != lb:
                     due.append("sports")
@@ -535,7 +544,7 @@ class Board:
                     return self.redraw("home", major=True)
                 self.note_event("manual refresh")
         if b == 0:
-            for name in ("weather", "news", "sports", "sky"):
+            for name in active():
                 try:
                     self.take(name, force=True)
                 except Exception:
@@ -545,14 +554,15 @@ class Board:
                 self.redraw("refresh button", major=True)
             return
         with self.cond:
-            i = PAGES.index(self.page)
-            self.page = PAGES[(i + (1 if b == 2 else -1)) % len(PAGES)]
+            pg = pages()
+            i = pg.index(self.page) if self.page in pg else 0
+            self.page = pg[(i + (1 if b == 2 else -1)) % len(pg)]
             self.page_since = time.time()
             self.redraw(f"page {self.page}", major=True)
 
     def goto(self, page):
         with self.cond:
-            self.page = page if page in PAGES else "quad"
+            self.page = page if page in pages() else "quad"
             self.page_since = time.time()
             self.redraw(f"page {self.page} (dashboard)", major=True)
 
@@ -682,6 +692,7 @@ class H(BaseHTTPRequestHandler):
         st["sources"] = {
             "weather": S._weather.status(), "alerts": S._alerts.status(), "news": S.news_status(),
             "quotes": S.quotes_status(), "sports": S.sports_status(), "brief": S.brief_status(),
+            "calendar": S.calendar_status(),
             "sky": {"age_s": round(now - sky.updated_at) if sky and sky.updated_at else None,
                     "error": sky.last_error if sky else None},
             "events": events.status if events else None,
@@ -713,8 +724,8 @@ class H(BaseHTTPRequestHandler):
             else:
                 v = str(v)
             new[k] = v
-        if sorted(new["slots"]) != sorted(R.PANELS):
-            raise ValueError("slots must use each panel exactly once")
+        if len(new["slots"]) != 4 or len(set(new["slots"])) != 4 or not set(new["slots"]) <= set(R.PANELS):
+            raise ValueError(f"slots must be four different panels from: {', '.join(R.PANELS)}")
         moved = (new["lat"], new["lon"], new["radar_nm"], new["iss"], new["launch"]) != \
                 (cfg["lat"], cfg["lon"], cfg["radar_nm"], cfg["iss"], cfg["launch"])
         cfg.clear()
@@ -724,7 +735,7 @@ class H(BaseHTTPRequestHandler):
         if moved:
             start_sky()
         # data-shaping changes need a refetch; purely visual ones just a redraw
-        for name in ("weather", "news", "sports", "sky"):
+        for name in active():
             try:
                 board.take(name, force=name in ("weather",) and moved)
             except Exception:
@@ -897,7 +908,7 @@ def tls_context():
 
 
 def warm():
-    for name in ("weather", "news", "sports", "sky"):
+    for name in active():
         try:
             board.take(name)
         except Exception:

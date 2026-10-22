@@ -111,6 +111,27 @@ Teams with no recent or upcoming game, such as a baseball team in winter, are le
 they have one. Tickers are Yahoo Finance symbols (`^GSPC` S&P 500, `^DJI` Dow, `^IXIC` Nasdaq).
 If you don't use the `claude` CLI on the server, also send `{"llm_brief": false}`.
 
+### A calendar corner (busy times)
+
+The quad can show a **calendar** corner in place of any other: your busy times for the rest of
+today and tomorrow, with a three-day page behind it. It reads published iCalendar (ICS) links,
+for example Outlook's "Can view when I'm busy" publishing (Outlook on the web → Settings →
+Calendar → Shared calendars → Publish a calendar). Only the status shows (Busy, Tentative, Out of
+office), never titles, unless you turn on `calendar_titles`.
+
+Put the link in `server/quad.env`, not in `config.json` (the settings page shows `config.json`,
+and the link works like a password). Separate several links with spaces:
+
+```sh
+echo 'QUAD_CALENDAR_ICS=https://outlook.office365.com/owa/calendar/.../calendar.ics' >> ~/eink-quad/server/quad.env
+sudo launchctl kickstart -k system/com.quadboard.server
+```
+
+Then choose the four corners, in order, from `weather`, `news`, `sports`, `calendar` and `sky`:
+`{"slots": ["weather", "news", "calendar", "sky"]}` with the same `curl` as above. The buttons
+page through the corners you chose. A work calendar is your employer's data: check that publishing
+it, even as free/busy, is allowed.
+
 ### Running the server
 
 `setup-mac.sh` installs it as a launchd service that starts at boot and restarts if it stops.

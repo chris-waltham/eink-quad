@@ -328,6 +328,8 @@ class Ctx:
     heads: list = field(default_factory=list)
     quotes: list = field(default_factory=list)
     teams: list = field(default_factory=list)
+    busy: list = field(default_factory=list)      # calendar_ics.Busy, sorted
+    calendar_set: bool = True     # QUAD_CALENDAR_ICS is configured
     featured: object = None       # sky Sighting
     recent: list = field(default_factory=list)
     day_count: int = 0
@@ -796,7 +798,76 @@ def _event_card(c, d, ctx, size):
     return c
 
 
-PANELS = {"weather": panel_weather, "news": panel_news, "sports": panel_sports, "sky": panel_sky}
+def _day_start(ts):
+    t = time.localtime(ts)
+    return time.mktime((t.tm_year, t.tm_mon, t.tm_mday, 0, 0, 0, 0, 0, -1))
+
+
+def _busy_on(ctx, day0, day1):
+    return [b for b in ctx.busy if b.start < day1 and b.end > day0]
+
+
+def _busy_row(d, x, y, w, b, now, f_time, f_label, day0):
+    """One block: "9:30 – 11:00  Busy", with NOW / all-day markers. Returns the row height."""
+    if b.all_day:
+        x2 = pill(d, x, y + 1, "ALL DAY", F("cb", 13), pad=4, h=19) + 8
+        text(d, (x2, y), ellipsize(d, b.label, f_label, x + w - x2), f_label)
+        return 25
+    t0 = max(b.start, day0)
+    s = f"{hm(t0, False)} – {hm(b.end, False)}"
+    x2 = x
+    if b.start <= now < b.end:
+        x2 = pill(d, x, y + 1, "NOW", F("cb", 13), pad=4, h=19) + 7
+    text(d, (x2, y), s, f_time)
+    lx = max(x + 132, x2 + tw(d, s, f_time) + 10)
+    text(d, (lx, y), ellipsize(d, b.label, f_label, x + w - lx), f_label)
+    return 25
+
+
+def panel_calendar(ctx: Ctx, size):
+    """Busy times for the rest of today, then tomorrow, as many as fit."""
+    c, d = canvas(size)
+    w, h = size
+    now = ctx.now
+    if not ctx.calendar_set:
+        text(d, (w / 2, h / 2), "No calendar set up", F("m", 17), anchor="mm")
+        return c
+    ft, fl, fh = F("cb", 18), F("m", 17), F("cb", 15)
+    today0 = _day_start(now)
+    tom0 = _day_start(today0 + 36 * 3600)
+    tom1 = _day_start(tom0 + 36 * 3600)
+    y = 6
+    rest = [b for b in _busy_on(ctx, today0, tom0) if b.end > now]
+    text(d, (12, y), "TODAY", fh)
+    y += 21
+    if rest:
+        for b in rest:
+            if y + 25 > h - 52:
+                text(d, (12, y), f"+{len(rest) - rest.index(b)} more", F("cm", 15))
+                y += 21
+                break
+            y += _busy_row(d, 12, y, w - 24, b, now, ft, fl, today0)
+    else:
+        text(d, (12, y), "Free the rest of the day", F("sb", 17))
+        y += 25
+    y += 4
+    dotted(d, 10, w - 10, int(y), 3)
+    y += 6
+    nxt = _busy_on(ctx, tom0, tom1)
+    text(d, (12, y), time.strftime("%A", time.localtime(tom0)).upper(), fh)
+    y += 21
+    if not nxt:
+        text(d, (12, y), "Nothing booked", F("sb", 17))
+    for i, b in enumerate(nxt):
+        if y + 25 > h - 4:
+            text(d, (w - 10, h - 4), f"+{len(nxt) - i} more", F("cm", 14), anchor="rd")
+            break
+        y += _busy_row(d, 12, y, w - 24, b, now, ft, fl, tom0)
+    return c
+
+
+PANELS = {"weather": panel_weather, "news": panel_news, "sports": panel_sports, "calendar": panel_calendar,
+          "sky": panel_sky}
 
 
 # ================================================================== chrome
@@ -1113,7 +1184,37 @@ def detail_sky(ctx, size):
     return c
 
 
-DETAILS = {"weather": detail_weather, "news": detail_news, "sports": detail_sports, "sky": detail_sky}
+def detail_calendar(ctx, size):
+    """Three columns: today, tomorrow, the day after."""
+    c, d = canvas(size)
+    w, h = size
+    now = ctx.now
+    cw = w / 3
+    day0 = _day_start(now)
+    ft, fl = F("cb", 18), F("m", 17)
+    for i in range(3):
+        a = _day_start(day0 + i * 86400 + 3600 * 3)
+        b = _day_start(a + 36 * 3600)
+        x = i * cw + 12
+        name = "Today" if i == 0 else time.strftime("%A", time.localtime(a))
+        text(d, (x, 10), name.upper(), F("cb", 19))
+        text(d, (x, 34), time.strftime("%B ", time.localtime(a)) + str(time.localtime(a).tm_mday), F("cm", 15))
+        y = 62
+        blocks = _busy_on(ctx, a, b)
+        if not blocks:
+            text(d, (x, y), "Nothing booked", F("sb", 17))
+        for j, blk in enumerate(blocks):
+            if y + 25 > h - 8:
+                text(d, (x, y), f"+{len(blocks) - j} more", F("cm", 15))
+                break
+            y += _busy_row(d, x, y, cw - 24, blk, now, ft, fl, a)
+        if i:
+            d.line((i * cw, 8, i * cw, h - 8), fill=INK, width=1)
+    return c
+
+
+DETAILS = {"weather": detail_weather, "news": detail_news, "sports": detail_sports, "calendar": detail_calendar,
+           "sky": detail_sky}
 
 
 def compose_page(ctx: Ctx, name: str) -> Image.Image:
@@ -1121,9 +1222,10 @@ def compose_page(ctx: Ctx, name: str) -> Image.Image:
     c.paste(header(ctx), (0, 0))
     # the strip becomes a page title bar with position dots
     s, d = canvas((W, STRIP_H))
-    titles = {"weather": "Weather", "news": "News & markets", "sports": "Scores & schedule", "sky": "Sky above"}
+    titles = {"weather": "Weather", "news": "News & markets", "sports": "Scores & schedule",
+              "calendar": "Calendar · busy times", "sky": "Sky above"}
     text(d, (14, STRIP_H / 2 - 1), titles.get(name, name).upper(), F("cb", 19), anchor="lm")
-    text(d, (W - 14, STRIP_H / 2 - 1), "middle: back  ·  right: next  ·  left: home", F("cm", 15), anchor="rm")
+    text(d, (W - 14, STRIP_H / 2 - 1), "left: next  ·  middle: back  ·  right: home", F("cm", 15), anchor="rm")
     d.line((0, STRIP_H - 1, W, STRIP_H - 1), fill=INK, width=2)
     c.paste(s, (0, HEAD_H))
     c.paste(DETAILS[name](ctx, BODY), (0, GRID_Y))

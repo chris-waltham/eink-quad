@@ -76,6 +76,11 @@ FP="$(openssl x509 -in "$TLS/quad.crt" -noout -fingerprint -sha256 | sed 's/.*=/
 echo "certificate fingerprint (the board checks this): $FP"
 
 say "quad.env"
+# Settings this script doesn't manage (QUAD_CALENDAR_ICS, CLAUDE_CODE_OAUTH_TOKEN, ...) are kept.
+EXTRA=""
+if [ -f "$ENV_FILE" ]; then
+  EXTRA="$(grep -vE '^(#|$|(TZ|QUAD_TOKEN|QUAD_ADMIN|QUAD_CONTACT|QUAD_BIND|QUAD_PORT|QUAD_DEVICE_BIND|QUAD_DEVICE_PORT|QUAD_CERT|QUAD_KEY)=)' "$ENV_FILE" || true)"
+fi
 umask 077
 cat > "$ENV_FILE" <<EOF
 # Written by setup-mac.sh. One KEY=VALUE per line, no comments after values.
@@ -90,6 +95,7 @@ QUAD_DEVICE_PORT=$DEVICE_PORT
 QUAD_CERT=$TLS/quad.crt
 QUAD_KEY=$TLS/quad.key
 EOF
+[ -n "$EXTRA" ] && printf '%s\n' "$EXTRA" >> "$ENV_FILE"
 umask 022
 echo "wrote $ENV_FILE (readable only by you)"
 
