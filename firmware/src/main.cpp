@@ -296,6 +296,10 @@ static Resp poll(uint32_t waitS, int8_t btn, bool boot, bool abortable) {
                    "/api/device/poll?v=%u&wait=%u&vbat=%.3f&rssi=%d&g=1%s",
                    rtcVersion, waitS, vbat, WiFi.RSSI(), boot ? "&boot=1" : "");
   if (haveT) n += snprintf(path + n, sizeof(path) - n, "&t=%.1f&rh=%.0f", t, rh);
+  bool usb;
+  uint8_t chg;
+  if (sensors::readCharger(&usb, &chg))
+    n += snprintf(path + n, sizeof(path) - n, "&usb=%d&chg=%u", usb ? 1 : 0, (unsigned)chg);
   if (btn >= 0) n += snprintf(path + n, sizeof(path) - n, "&btn=%d", btn);
   if (!bufferValid) n += snprintf(path + n, sizeof(path) - n, "&fresh=1");
 

@@ -279,6 +279,8 @@ function render() {
   if (d.in_sync === false && age != null && age < 90) chips.push(['warn', 'Updating…']);
   if (d.t != null) chips.push(['', `Inside ${(d.t*9/5+32).toFixed(0)}°F ${d.rh != null ? d.rh.toFixed(0)+'%' : ''}`]);
   if (d.battery != null) chips.push([d.battery < 20 ? 'bad' : '', `Battery ${d.battery}% (${d.vbat?.toFixed(2)}V)`]);
+  if (d.usb != null) chips.push(['', d.usb ? `On USB · ${esc(d.charge || 'power')}` : 'On battery']);
+  else if (d.power) chips.push(['', `${d.mode === 'live' ? 'Probably on USB' : 'Probably on battery'} (${esc(d.power)})`]);
   if (d.rssi != null) chips.push(['', `Wi-Fi ${d.rssi} dBm`]);
   chips.push(['', `Page: ${PAGE_NAMES[S.page] || S.page}`]);
   if (S.note) chips.push(['warn', `Showing a note from ${S.note}`]);

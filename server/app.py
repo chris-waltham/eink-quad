@@ -84,6 +84,9 @@ CERT_PATH = os.environ.get("QUAD_CERT", os.path.join(HERE, "tls", "quad.crt"))
 KEY_PATH = os.environ.get("QUAD_KEY", os.path.join(HERE, "tls", "quad.key"))
 
 
+CHARGE_STATES = {0: "not charging", 1: "pre-charging", 2: "charging", 3: "charged"}
+
+
 def check_token(name, value):
     """Refuse to start on a missing, placeholder or weak token rather than run unprotected."""
     if not value:
@@ -278,6 +281,21 @@ class Board:
         self.prev_version = self.version
         self.reel = b""
         self.render_ms = 0
+
+    def power_mode(self, vbat, usb):
+        """live (awake, long-polling) on USB power, sleep on battery.
+        Board v1.2 reports USB power from its charger chip; trust that. Older boards only send
+        the battery voltage: then it's USB if the voltage sits at full charge or has risen over
+        the last ~10 minutes (it only rises while charging)."""
+        now = time.time()
+        if usb is not None:
+            return ("live" if usb == "1" else "sleep"), "charger chip"
+        if vbat is None:
+            return "live", "unknown"
+        hist = self.vhist = [(t, v) for t, v in getattr(self, "vhist", []) if now - t < 1800] + [(now, vbat)]
+        old = [v for t, v in hist if now - t >= 480]
+        rising = bool(old) and vbat - old[-1] >= 0.03
+        return ("live" if vbat >= 4.15 or rising else "sleep"), "voltage guess"
 
     def device_attempt(self, ip, result):
         """Remember the last device-port connection, and log each change of outcome once."""
@@ -749,9 +767,12 @@ class H(BaseHTTPRequestHandler):
         wait = min(int(q.get("wait", "0") or 0), 30)
         vbat = float(q["vbat"]) if q.get("vbat") else None
         btn = q.get("btn")
-        mode = "live" if (vbat is None or vbat >= 3.80) else "sleep"
+        usb = q.get("usb") if q.get("usb") in ("0", "1") else None
+        chg = int(q["chg"]) if q.get("chg", "").isdigit() else None
+        mode, power = board.power_mode(vbat, usb)
         dv = board.device
-        dv.update(last_seen=time.time(), vbat=vbat, mode=mode, version=v,
+        dv.update(last_seen=time.time(), vbat=vbat, mode=mode, version=v, usb=usb == "1" if usb else None,
+                  charge=CHARGE_STATES.get(chg) if chg is not None else None, power=power,
                   rssi=int(q["rssi"]) if q.get("rssi") else dv.get("rssi"), polls=dv["polls"] + 1)
         if q.get("t"):
             dv["t"] = float(q["t"])
