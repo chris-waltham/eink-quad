@@ -468,17 +468,18 @@ def _rain_bars(d, hourly, now, x0, x1, y0, y1):
 def _quote_cell(d, x, y, cw, q, spark_h=0, c=None):
     fname = F("cm", 15)
     text(d, (x + cw / 2, y), ellipsize(d, q.name, fname, cw - 4), fname, anchor="ma")
-    pct = q.chg_pct
-    s = f"{abs(pct):.2f}%"
-    f = F("cb", 20)
-    wv = tw(d, s, f) + 13
-    sx = x + (cw - wv) / 2
-    if abs(pct) >= 0.005:
-        tri(d, sx, y + 23, 9, pct > 0)
-    text(d, (sx + 13, y + 17), s, f)
+    # price first, in bold; the day's change under it, with its arrow
     p = q.price
     ps = f"{p:,.0f}" if p >= 1000 else f"{p:,.2f}"
-    text(d, (x + cw / 2, y + 40), ps, F("cr", 15), anchor="ma")
+    text(d, (x + cw / 2, y + 17), ps, F("cb", 20), anchor="ma")
+    pct = q.chg_pct
+    s = f"{abs(pct):.2f}%"
+    f = F("cr", 15)
+    wv = tw(d, s, f) + 11
+    sx = x + (cw - wv) / 2
+    if abs(pct) >= 0.005:
+        tri(d, sx, y + 44, 7, pct > 0)
+    text(d, (sx + 11, y + 40), s, f)
     if spark_h and q.spark and len(q.spark) > 2:
         sy0, sy1 = y + 60, y + 60 + spark_h
         lo, hi = min(q.spark + [q.prev]), max(q.spark + [q.prev])
