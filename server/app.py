@@ -851,6 +851,11 @@ class H(BaseHTTPRequestHandler):
 class DeviceH(H):
     """The LAN-facing listener: the board's poll and a health check, nothing else."""
 
+    # Idle keep-alive connections close after this. The board sleeps without closing its
+    # connection, so without a timeout each wake left one open until the server ran out of files.
+    # Longer than the 30 s long-poll.
+    timeout = 90
+
     def do_GET(self):
         p = self.route()
         try:
@@ -896,7 +901,6 @@ class TLSServer(Server):
         try:
             request.settimeout(20)
             request.do_handshake()
-            request.settimeout(None)
         except (ssl.SSLError, OSError) as e:
             board.device_attempt(client_address[0], f"TLS handshake failed: {type(e).__name__}")
             return
