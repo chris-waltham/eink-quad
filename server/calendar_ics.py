@@ -19,7 +19,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import requests
 from dateutil.rrule import rrulestr
 
-UA = {"User-Agent": "quadboard/2 (+https://github.com/chris-waltham/eink-quad)"}
+UA = {"User-Agent": "eink-quad/0.1 (personal e-paper dashboard; hobby project)"}
 
 # Outlook writes Windows zone names. The common ones; anything else falls back to the server's TZ.
 WINDOWS_TZ = {

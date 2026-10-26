@@ -6,11 +6,6 @@ An e-paper kitchen dashboard for the Seeed reTerminal E1001. Four corners of you
 
 **[See the project page →](https://j-rod-ay.github.io/eink-quad/)**
 
-> This is a fork of [J-Rod-Ay/eink-quad](https://github.com/J-Rod-Ay/eink-quad). It replaces the
-> nginx/reverse-proxy setup with a one-step Mac setup script and HTTPS built into the server, and
-> the board now pins the server's certificate, shows on screen what's wrong when it can't connect,
-> and reads the charger chip to know when it's on USB. The steps below are for this fork.
-
 🖥️ **The screen: [Seeed reTerminal E1001 on Amazon](https://link.amazon/B0gH6ekeP)** — 7.5″ 800×480 mono e-paper, ESP32-S3, battery. *(affiliate link)*
 
 ## What's on it
@@ -57,7 +52,7 @@ All keyless: Open-Meteo (forecast + nowcast), api.weather.gov (alerts, US only),
 ### Server (macOS)
 
 ```sh
-git clone -b quad-improvements https://github.com/chris-waltham/eink-quad.git ~/eink-quad
+git clone https://github.com/J-Rod-Ay/eink-quad.git ~/eink-quad
 cd ~/eink-quad/server
 ./setup-mac.sh
 ```
